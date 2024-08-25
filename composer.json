@@ -1,0 +1,10 @@
+{
+  "name":"forger-me/wp-package-updater",
+  "description":"Used to enable updates for plugins and themes distributed via WP Plugin Update Server.",
+  "require":{
+      "yahnis-elsts/plugin-update-checker":"*"
+  },
+  "autoload": {
+      "classmap":["./class-wp-package-updater.php"]
+  }
+}
