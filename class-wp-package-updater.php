@@ -65,12 +65,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 // );
 
 /* ================================================================================================ */
+require 'vendor/yahnis-elsts/plugin-update-checker/load-v5p4.php';
+
+use YahnisElsts\PluginUpdateChecker\v5p4\PucFactory;
 
 if ( ! class_exists( 'WP_Package_Updater' ) ) {
 
 	class WP_Package_Updater {
 
-		const VERSION = '1.0.0';
+		const VERSION = '1.5.0';
 
 		private $license_server_url;
 		private $package_slug;
@@ -87,36 +90,24 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 			$package_file_path,
 			$package_path,
 			$use_license = false
-		) {
-			$this->package_path = trailingslashit( $package_path );
-
-			$this->set_type();
-
-			$package_path_parts = explode( DIRECTORY_SEPARATOR, $package_path );
-
-			if ( 'Plugin' === $this->type ) {
-				$package_slug = $package_path_parts[ count( $package_path_parts ) - 2 ];
-			} elseif ( 'Theme' === $this->type ) {
-				$package_slug = $package_path_parts[ count( $package_path_parts ) - 1 ];
-			}
-
+		) { 
+			$package_slug = basename(dirname($package_file_path));
 			$package_file_path_parts = explode( DIRECTORY_SEPARATOR, $package_file_path );
 			$package_id_parts        = array_slice( $package_file_path_parts, -2, 2 );
-			$package_id              = implode( '/', $package_id_parts );
+			$package_id              = join("/", $package_id_parts);
 
+			$this->package_path = trailingslashit( $package_path );
 			$this->package_id        = $package_id;
 			$this->update_server_url = trailingslashit( $update_server_url ) . 'wppus-update-api/';
 			$this->package_slug      = $package_slug;
 			$this->use_license       = $use_license;
 
-			if ( ! class_exists( 'Puc_v4_Factory' ) ) {
-				require $this->package_path . 'lib/plugin-update-checker/plugin-update-checker.php';
-			}
+			$metadata_url  = add_query_arg( array(
+				'package_id' => $package_slug,
+			), trailingslashit( $update_server_url ) . 'wp-json/wppus/v1/packages/metadata' );
+			;
 
-			$metadata_url  = trailingslashit( $this->update_server_url ) . '?action=get_metadata&package_id=';
-			$metadata_url .= rawurlencode( $this->package_slug );
-
-			$this->update_checker = Puc_v4_Factory::buildUpdateChecker( $metadata_url, $package_file_path );
+			$this->update_checker = PucFactory::buildUpdateChecker( $metadata_url, $package_file_path );
 
 			$this->set_type();
 
@@ -129,7 +120,7 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 			$this->update_checker->addQueryArgFilter( array( $this, 'filter_update_checks' ) );
 
 			if ( $this->use_license ) {
-				$this->license_server_url = trailingslashit( $update_server_url ) . 'wppus-license-api/';
+				$this->license_server_url = trailingslashit( $update_server_url ) . 'wp-json/wppus/v1/licenses/';
 
 				$this->update_checker->addResultFilter( array( $this, 'set_license_error_notice_content' ) );
 
@@ -137,7 +128,6 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 					add_action( 'after_plugin_row_' . $this->package_id, array( $this, 'print_license_under_plugin' ), 10, 3 );
 				} elseif ( 'Theme' === $this->type ) {
 					add_action( 'admin_menu', array( $this, 'setup_theme_admin_menus' ), 10, 0 );
-
 					add_filter( 'custom_menu_order', array( $this, 'alter_admin_appearence_submenu_order' ), 10, 1 );
 				}
 
@@ -219,13 +209,13 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 
 			if ( $condition ) {
 				$js_ext = ( $debug ) ? '.js' : '.min.js';
-				$ver_js = filemtime( $this->package_path . 'lib/wp-package-updater/js/main' . $js_ext );
+				$ver_js = filemtime(  __DIR__ . '/js/main' . $js_ext );
 				$params = array(
 					'action_prefix' => 'wppu_' . $this->package_id,
 					'ajax_url'      => admin_url( 'admin-ajax.php' ),
 				);
 
-				wp_enqueue_script( 'wp-package-updater-script', $this->package_url . '/lib/wp-package-updater/js/main' . $js_ext, array( 'jquery' ), $ver_js, true );
+				wp_enqueue_script( 'wp-package-updater-script', $this->package_url . '/lib/froger-me/wp-package-updater/js/main' . $js_ext, array( 'jquery' ), $ver_js, true );
 				wp_localize_script( 'wp-package-updater-script', 'WP_PackageUpdater', $params );
 			}
 		}
@@ -264,14 +254,13 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 
 			ob_start();
 
-			require_once $this->package_path . 'lib/wp-package-updater/templates/plugin-page-license-row.php';
+			require_once 'templates/plugin-page-license-row.php';
 
 			echo ob_get_clean(); // @codingStandardsIgnoreLine
 		}
 
 		public function activate_license() {
-			$license_data = $this->do_query_license( 'activate' );
-
+			$license_data = $this->do_query_license( 'activate' , 'POST');
 			if ( isset( $license_data->package_slug, $license_data->license_key ) ) {
 				update_option( 'license_key_' . $license_data->package_slug, $license_data->license_key );
 
@@ -305,7 +294,7 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 		}
 
 		public function deactivate_license() {
-			$license_data = $this->do_query_license( 'deactivate' );
+			$license_data = $this->do_query_license( 'deactivate', 'POST');
 
 			if ( isset( $license_data->package_slug, $license_data->license_key ) ) {
 				update_option( 'license_key_' . $license_data->package_slug, '' );
@@ -362,7 +351,7 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 			}
 		}
 
-		protected function do_query_license( $query_type ) {
+		protected function do_query_license( $query_type , $method = "GET") {
 
 			if ( ! wp_verify_nonce( $_REQUEST['nonce'], 'license_nonce' ) ) {
 				$error = new WP_Error( 'License', 'Unauthorised access.' );
@@ -372,7 +361,6 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 
 			$license_key        = $_REQUEST['license_key'];
 			$this->package_slug = $_REQUEST['package_slug'];
-
 			if ( empty( $license_key ) ) {
 				$error = new WP_Error( 'License', 'A license key is required.' );
 
@@ -380,18 +368,24 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 			}
 
 			$api_params = array(
-				'action'          => $query_type,
 				'license_key'     => $license_key,
 				'allowed_domains' => $_SERVER['SERVER_NAME'],
 				'package_slug'    => rawurlencode( $this->package_slug ),
 			);
-
-			$query    = esc_url_raw( add_query_arg( $api_params, $this->license_server_url ) );
-			$response = wp_remote_get( $query, array(
+			$url = trailingslashit($this->license_server_url) . $query_type;
+			if($method == 'GET') {
+				$url    = esc_url_raw( add_query_arg( $api_params, $url ));
+			} elseif ($method == 'POST')
+			{
+				$api_params = json_encode($api_params);
+			}
+			
+			$response = wp_remote_request( $url, array_merge($method == 'GET' ? [] : ['body' => $api_params ], array(
 				'timeout'   => 20,
 				'sslverify' => true,
-			) );
-
+				'method' => $method,
+				"headers" => ['Content-Type' => 'application/json', "Accept" => 'application/json']
+			)) );
 			if ( is_wp_error( $response ) ) {
 				$license_data          = new stdClass();
 				$license_data->message = __( 'Unexpected Error! The query to retrieve the license data returned a malformed response.', 'wp-package-updater' );
@@ -490,7 +484,7 @@ if ( ! class_exists( 'WP_Package_Updater' ) ) {
 
 			ob_start();
 
-			require_once $this->package_path . 'lib/wp-package-updater/templates/license-form.php';
+			require_once 'templates/license-form.php';
 
 			return ob_get_clean();
 		}
